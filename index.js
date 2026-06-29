@@ -157,67 +157,58 @@ function valeurValide(contexte, valeur) {
 }
 
 /**
- * Lit la valeur saisie dans un champ de consigne forcée.
+ * Lit la consigne forcée directement depuis l'automate via webMI.data.read,
+ * valide qu'elle est inférieure à consActuelle et >= CONS_FORCEE_MIN,
+ * puis appelle onSuccess(valeur) ou onError().
  *
- * TODO : confirmer si l'objet atvise expose bien .value sur getElementById,
- *        ou s'il faut passer par webMI.gfx.getValue("id_cons_forcee") à la place.
+ * Remplace l'ancienne lireConsForcee (lecture HTML .value) : le champ de
+ * saisie écrit directement sur la variable automate, donc on lit la source
+ * de vérité côté automate plutôt que le DOM.
  *
- * @param  {string} id   - Identifiant de l'élément (ex: "id_cons_forcee")
- * @returns {number|null} - Valeur numérique ou null si non lisible
+ * @param {string}   adresse      - Adresse automate de la consigne forcée (ex: adr_cons_forcee)
+ * @param {number}   consActuelle - Valeur actuelle lue sur le device (pour validation)
+ * @param {string}   label        - Label pour les logs/alertes (ex: "Zone 1")
+ * @param {function} onSuccess    - Appelée avec la valeur numérique validée
+ * @param {function} onError      - Appelée sans argument en cas d'échec
  */
-function lireConsForcee(id) {
-    // TODO : si .value ne fonctionne pas, remplacer par : webMI.gfx.getValue(id)
-    var el = document.getElementById(id);
-    if (!el) {
-        log("[WARN] lireConsForcee : élément introuvable → " + id);
-        return null;
-    }
-    var val = parseFloat(el.value); // TODO : adapter si l'objet n'expose pas .value
-    if (isNaN(val)) {
-        log("[WARN] lireConsForcee : valeur non numérique sur " + id + " → '" + el.value + "'");
-        return null;
-    }
-    return val;
-}
+function lireEtValiderConsForcee(adresse, consActuelle, label, onSuccess, onError) {
+    webMI.data.read(adresse, function(v) {
+        log("[VALIDATION] " + label + " : lecture cons_forcee sur " + adresse + " = '" + v.value + "' (status=" + v.status + ")");
 
-/**
- * Valide qu'une consigne forcée saisie est dans les bornes autorisées :
- *   - Doit être strictement inférieure à la consigne actuelle du device
- *   - Doit être >= CONS_FORCEE_MIN (-50)
- *
- * @param  {string} idChamp       - Id du champ de saisie (ex: "id_cons_forcee")
- * @param  {number} consActuelle  - Valeur actuelle lue sur le device
- * @param  {string} label         - Label pour les logs/alertes (ex: "Zone 1")
- * @returns {number|null}         - Valeur validée ou null si invalide (sans rien écrire)
- */
-function validerConsForcee(idChamp, consActuelle, label) {
-    var valSaisie = lireConsForcee(idChamp);
+        if (!statusOK("Lecture cons_forcee " + label, v.status)) { onError(); return; }
+        if (!valeurValide("Lecture cons_forcee " + label, v.value)) { onError(); return; }
 
-    if (valSaisie === null) {
-        erreur("Consigne forcée " + label, "Valeur saisie illisible ou non numérique.");
-        return null;
-    }
+        var valSaisie = parseFloat(v.value);
 
-    log("[VALIDATION] " + label + " : cons_forcee=" + valSaisie + " | cons_actuelle=" + consActuelle + " | min=" + CONS_FORCEE_MIN);
+        if (isNaN(valSaisie)) {
+            erreur("Consigne forcée " + label, "Valeur lue non numérique : '" + v.value + "'");
+            onError();
+            return;
+        }
 
-    if (valSaisie >= consActuelle) {
-        erreur(
-            "Consigne forcée " + label,
-            "La consigne forcée (" + valSaisie + "°C) doit être INFÉRIEURE à la consigne actuelle (" + consActuelle + "°C)."
-        );
-        return null;
-    }
+        log("[VALIDATION] " + label + " : cons_forcee=" + valSaisie + " | cons_actuelle=" + consActuelle + " | min=" + CONS_FORCEE_MIN);
 
-    if (valSaisie < CONS_FORCEE_MIN) {
-        erreur(
-            "Consigne forcée " + label,
-            "La consigne forcée (" + valSaisie + "°C) ne peut pas être inférieure à " + CONS_FORCEE_MIN + "°C."
-        );
-        return null;
-    }
+        if (valSaisie >= consActuelle) {
+            erreur(
+                "Consigne forcée " + label,
+                "La consigne forcée (" + valSaisie + "°C) doit être INFÉRIEURE à la consigne actuelle (" + consActuelle + "°C)."
+            );
+            onError();
+            return;
+        }
 
-    log("[VALIDATION] " + label + " OK → " + valSaisie + "°C");
-    return valSaisie;
+        if (valSaisie < CONS_FORCEE_MIN) {
+            erreur(
+                "Consigne forcée " + label,
+                "La consigne forcée (" + valSaisie + "°C) ne peut pas être inférieure à " + CONS_FORCEE_MIN + "°C."
+            );
+            onError();
+            return;
+        }
+
+        log("[VALIDATION] " + label + " OK → " + valSaisie + "°C");
+        onSuccess(valSaisie);
+    });
 }
 
 
@@ -484,10 +475,10 @@ function ecrireUnVentilateursSimple(onSuccess, onError) {
 // ============================================================================
 // BOUTON ACTIVER
 // Séquence :
-//   1. Lecture cons_actuelle device1         → bloqué si vide
-//   2. Validation cons_forcee zone 1         → bloqué si hors bornes
-//   3. (zone double) Lecture cons_actuelle device2 → bloqué si vide
-//   4. (zone double) Validation cons_forcee_2 zone 2 → bloqué si hors bornes
+//   1. Lecture cons_actuelle device1                     → bloqué si vide
+//   2. Lecture + validation cons_forcee depuis automate  → bloqué si hors bornes
+//   3. (zone double) Lecture cons_actuelle device2       → bloqué si vide
+//   4. (zone double) Lecture + validation cons_forcee_2 depuis automate → bloqué si hors bornes
 //   --- Toutes les validations OK, on commence les écritures ---
 //   5. Write + vérif cons_normale
 //   6. Write + vérif cons_forcee
@@ -512,32 +503,34 @@ webMI.addEvent("id_btn_activer", "click", function() {
 
         var consActuelle1 = parseFloat(v1.value);
 
-        // 2. Validation cons_forcee zone 1
-        var consForcee1 = validerConsForcee("id_cons_forcee", consActuelle1, "Zone " + num_zone);
-        if (consForcee1 === null) { appliquerEtatNormal(); return; }
+        // 2. Lecture + validation cons_forcee depuis automate
+        lireEtValiderConsForcee(adr_cons_forcee, consActuelle1, "Zone " + num_zone, function(consForcee1) {
 
-        if (aZoneDouble) {
-            // 3. Lecture cons_actuelle device2
-            webMI.data.read(adr_cons_actuelle2, function(v2) {
-                log("[BTN ACTIVER] Lecture device2 cons_actuelle = '" + v2.value + "' (status=" + v2.status + ")");
+            if (aZoneDouble) {
+                // 3. Lecture cons_actuelle device2
+                webMI.data.read(adr_cons_actuelle2, function(v2) {
+                    log("[BTN ACTIVER] Lecture device2 cons_actuelle = '" + v2.value + "' (status=" + v2.status + ")");
 
-                if (!statusOK("Lecture device2 cons_actuelle", v2.status)) { appliquerEtatNormal(); return; }
-                if (!valeurValide("Lecture device2 cons_actuelle", v2.value)) { appliquerEtatNormal(); return; }
+                    if (!statusOK("Lecture device2 cons_actuelle", v2.status)) { appliquerEtatNormal(); return; }
+                    if (!valeurValide("Lecture device2 cons_actuelle", v2.value)) { appliquerEtatNormal(); return; }
 
-                var consActuelle2 = parseFloat(v2.value);
+                    var consActuelle2 = parseFloat(v2.value);
 
-                // 4. Validation cons_forcee_2 zone 2
-                var consForcee2 = validerConsForcee("id_cons_forcee_2", consActuelle2, "Zone " + num_zone + " (IJW2)");
-                if (consForcee2 === null) { appliquerEtatNormal(); return; }
+                    // 4. Lecture + validation cons_forcee_2 depuis automate
+                    lireEtValiderConsForcee(adr_cons_forcee_2, consActuelle2, "Zone " + num_zone + " (IJW2)", function(consForcee2) {
 
-                // Toutes validations OK → écritures zone double
-                ecrireActivationDouble(consActuelle1, consForcee1, consActuelle2, consForcee2);
-            });
+                        // Toutes validations OK → écritures zone double
+                        ecrireActivationDouble(consActuelle1, consForcee1, consActuelle2, consForcee2);
 
-        } else {
-            // Zone simple → écritures directes
-            ecrireActivationSimple(consActuelle1, consForcee1);
-        }
+                    }, function() { appliquerEtatNormal(); });
+                });
+
+            } else {
+                // Zone simple → écritures directes
+                ecrireActivationSimple(consActuelle1, consForcee1);
+            }
+
+        }, function() { appliquerEtatNormal(); });
     });
 });
 

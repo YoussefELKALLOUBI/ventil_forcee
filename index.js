@@ -41,8 +41,8 @@ function log(msg) {
 //   - automate         : chemin de base de l'automate
 //   - cons_actuelle    : suffixe → concaténé à device1/device2
 //   - cons_normale     : suffixe → concaténé à automate
-//   - cons_forcee      : suffixe → concaténé à automate
-//   - cons_forcee_2    : suffixe → concaténé à automate (zone double)
+//   - cons_forcee      : suffixe → concaténé à automate (écrit par le champ in/out)
+//   - cons_forcee_2    : suffixe → concaténé à automate (zone double, écrit par le champ in/out)
 //   - ventil_forcee    : chemin COMPLET dans l'URL → pas de concat avec automate
 // ============================================================================
 var num_zone  = webMI.query.num_zone;
@@ -52,9 +52,12 @@ var device2   = webMI.query.device2;
 
 var adr_ventil_forcee  = webMI.query.ventil_forcee;            // chemin complet
 var adr_cons_normale   = automate + webMI.query.cons_normale;
-var adr_cons_normale_2 = automate + webMI.query.cons_normale_2;
 var adr_cons_forcee    = automate + webMI.query.cons_forcee;
-var adr_cons_forcee_2  = automate + webMI.query.cons_forcee_2;
+
+// Variables _2 construites uniquement si zone double → évite des adresses "...undefined"
+var aZoneDouble = (num_zone == 3 || num_zone == 4);
+var adr_cons_normale_2 = aZoneDouble ? automate + webMI.query.cons_normale_2 : null;
+var adr_cons_forcee_2  = aZoneDouble ? automate + webMI.query.cons_forcee_2  : null;
 
 var adr_cons_actuelle1 = device1  + webMI.query.cons_actuelle;
 var adr_cons_actuelle2 = device2  + webMI.query.cons_actuelle;
@@ -89,12 +92,9 @@ log("[INIT] automate="       + automate);
 log("[INIT] device1="        + device1);
 log("[INIT] device2="        + device2);
 log("[INIT] ventil_forcee="  + adr_ventil_forcee);
-
 log("[INIT] cons_normale="   + adr_cons_normale);
 log("[INIT] cons_forcee="    + adr_cons_forcee);
 log("[INIT] cons_actuelle1=" + adr_cons_actuelle1);
-
-var aZoneDouble = (num_zone == 3 || num_zone == 4);
 
 
 // ============================================================================
@@ -161,11 +161,11 @@ function valeurValide(contexte, valeur) {
  * valide qu'elle est inférieure à consActuelle et >= CONS_FORCEE_MIN,
  * puis appelle onSuccess(valeur) ou onError().
  *
- * Remplace l'ancienne lireConsForcee (lecture HTML .value) : le champ de
- * saisie écrit directement sur la variable automate, donc on lit la source
- * de vérité côté automate plutôt que le DOM.
+ * Le champ de saisie étant un champ in/out webMI, il écrit directement sur
+ * la variable automate — pas besoin de relire le DOM, on lit la source de
+ * vérité côté automate.
  *
- * @param {string}   adresse      - Adresse automate de la consigne forcée (ex: adr_cons_forcee)
+ * @param {string}   adresse      - Adresse automate de la consigne forcée
  * @param {number}   consActuelle - Valeur actuelle lue sur le device (pour validation)
  * @param {string}   label        - Label pour les logs/alertes (ex: "Zone 1")
  * @param {function} onSuccess    - Appelée avec la valeur numérique validée
@@ -475,19 +475,18 @@ function ecrireUnVentilateursSimple(onSuccess, onError) {
 // ============================================================================
 // BOUTON ACTIVER
 // Séquence :
-//   1. Lecture cons_actuelle device1                     → bloqué si vide
-//   2. Lecture + validation cons_forcee depuis automate  → bloqué si hors bornes
-//   3. (zone double) Lecture cons_actuelle device2       → bloqué si vide
+//   1. Lecture cons_actuelle device1                      → bloqué si vide
+//   2. Lecture + validation cons_forcee depuis automate   → bloqué si hors bornes
+//   3. (zone double) Lecture cons_actuelle device2        → bloqué si vide
 //   4. (zone double) Lecture + validation cons_forcee_2 depuis automate → bloqué si hors bornes
 //   --- Toutes les validations OK, on commence les écritures ---
 //   5. Write + vérif cons_normale
-//   6. Write + vérif cons_forcee
-//   7. Write + vérif ventil_forcee = true
-//   8. (zone double) Write + vérif cons_normale_2 + cons_forcee_2
-//   9. Mise à zéro ventilateurs :
+//   6. Write + vérif ventil_forcee = true
+//   7. (zone double) Write + vérif cons_normale_2
+//   8. Mise à zéro ventilateurs :
 //        - zone double → ecrireZeroVentilateurs (F3, F2, F0 sur device1 et device2)
 //        - zone simple → ecrireZeroVentilateursSimple (FAN_F0, FAN_F2, FAN_F3 sur device1)
-//  10. Interface → état forcé
+//   9. Interface → état forcé
 //   En cas d'erreur → restauration état normal, rien n'est écrit
 // ============================================================================
 webMI.addEvent("id_btn_activer", "click", function() {
@@ -503,7 +502,7 @@ webMI.addEvent("id_btn_activer", "click", function() {
 
         var consActuelle1 = parseFloat(v1.value);
 
-        // 2. Lecture + validation cons_forcee depuis automate
+        // 2. Lecture + validation cons_forcee depuis automate (champ in/out → déjà écrit par l'opérateur)
         lireEtValiderConsForcee(adr_cons_forcee, consActuelle1, "Zone " + num_zone, function(consForcee1) {
 
             if (aZoneDouble) {
@@ -520,14 +519,14 @@ webMI.addEvent("id_btn_activer", "click", function() {
                     lireEtValiderConsForcee(adr_cons_forcee_2, consActuelle2, "Zone " + num_zone + " (IJW2)", function(consForcee2) {
 
                         // Toutes validations OK → écritures zone double
-                        ecrireActivationDouble(consActuelle1, consForcee1, consActuelle2, consForcee2);
+                        ecrireActivationDouble(consActuelle1, consActuelle2);
 
                     }, function() { appliquerEtatNormal(); });
                 });
 
             } else {
                 // Zone simple → écritures directes
-                ecrireActivationSimple(consActuelle1, consForcee1);
+                ecrireActivationSimple(consActuelle1);
             }
 
         }, function() { appliquerEtatNormal(); });
@@ -536,31 +535,25 @@ webMI.addEvent("id_btn_activer", "click", function() {
 
 /**
  * Écritures pour une zone simple (zones 1 et 2).
+ * cons_forcee déjà en place dans l'automate via le champ in/out → pas de write.
  * Appelée uniquement après validation complète.
  */
-function ecrireActivationSimple(consActuelle1, consForcee1) {
+function ecrireActivationSimple(consActuelle1) {
     log("[ACTIVER] Début écritures zone simple");
 
     // 5. Write cons_normale
     writeVerifie(adr_cons_normale, consActuelle1, consActuelle1, "Écriture cons_normale",
         function() {
 
-            // 6. Write cons_forcee
-            writeVerifie(adr_cons_forcee, consForcee1, consForcee1, "Écriture cons_forcee",
+            // 6. Write ventil_forcee = true
+            writeVerifie(adr_ventil_forcee, true, null, "Écriture ventil_forcee",
                 function() {
 
-                    // 7. Write ventil_forcee = true
-                    writeVerifie(adr_ventil_forcee, true, null, "Écriture ventil_forcee",
+                    // 8. Mise à zéro FAN_F0, FAN_F2, FAN_F3 sur device1
+                    ecrireZeroVentilateursSimple(
                         function() {
-
-                            // 9. Mise à zéro FAN_F0, FAN_F2, FAN_F3 sur device1
-                            ecrireZeroVentilateursSimple(
-                                function() {
-                                    // 10. Tout OK
-                                    appliquerEtatForce();
-                                },
-                                function() { appliquerEtatNormal(); }
-                            );
+                            // 9. Tout OK
+                            appliquerEtatForce();
                         },
                         function() { appliquerEtatNormal(); }
                     );
@@ -574,42 +567,29 @@ function ecrireActivationSimple(consActuelle1, consForcee1) {
 
 /**
  * Écritures pour une zone double (zones 3 et 4).
+ * cons_forcee et cons_forcee_2 déjà en place dans l'automate via les champs in/out → pas de write.
  * Appelée uniquement après validation complète des deux zones.
  */
-function ecrireActivationDouble(consActuelle1, consForcee1, consActuelle2, consForcee2) {
+function ecrireActivationDouble(consActuelle1, consActuelle2) {
     log("[ACTIVER] Début écritures zone double");
 
     // 5. Write cons_normale
     writeVerifie(adr_cons_normale, consActuelle1, consActuelle1, "Écriture cons_normale",
         function() {
 
-            // 6. Write cons_forcee
-            writeVerifie(adr_cons_forcee, consForcee1, consForcee1, "Écriture cons_forcee",
+            // 6. Write ventil_forcee = true
+            writeVerifie(adr_ventil_forcee, true, null, "Écriture ventil_forcee",
                 function() {
 
-                    // 7. Write ventil_forcee = true
-                    writeVerifie(adr_ventil_forcee, true, null, "Écriture ventil_forcee",
+                    // 7. Write cons_normale_2
+                    writeVerifie(adr_cons_normale_2, consActuelle2, consActuelle2, "Écriture cons_normale_2",
                         function() {
 
-                            // 8a. Write cons_normale_2
-                            writeVerifie(adr_cons_normale_2, consActuelle2, consActuelle2, "Écriture cons_normale_2",
+                            // 8. Mise à zéro F3, F2, F0 sur device1 et device2
+                            ecrireZeroVentilateurs(
                                 function() {
-
-                                    // 8b. Write cons_forcee_2
-                                    writeVerifie(adr_cons_forcee_2, consForcee2, consForcee2, "Écriture cons_forcee_2",
-                                        function() {
-
-                                            // 9. Mise à zéro F3, F2, F0 sur device1 et device2
-                                            ecrireZeroVentilateurs(
-                                                function() {
-                                                    // 10. Tout OK
-                                                    appliquerEtatForce();
-                                                },
-                                                function() { appliquerEtatNormal(); }
-                                            );
-                                        },
-                                        function() { appliquerEtatNormal(); }
-                                    );
+                                    // 9. Tout OK
+                                    appliquerEtatForce();
                                 },
                                 function() { appliquerEtatNormal(); }
                             );

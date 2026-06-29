@@ -62,6 +62,17 @@ var adr_cons_actuelle2 = device2  + webMI.query.cons_actuelle;
 // Limites de sécurité pour la consigne forcée
 var CONS_FORCEE_MIN = -50;
 
+// ============================================================================
+// NOUVEAU : Suffixes des 3 variables ventilateur évaporateur
+//   Construites dynamiquement : device1 + suffixe  /  device2 + suffixe
+//   F3 → Digital booléen  (attendu = null dans writeVerifie)
+//   F2 → Integer          (attendu = 0)
+//   F0 → Integer          (attendu = 0)
+// ============================================================================
+var VENTIL_F3_SUFFIX = ".Digitals.Etat ventilateurs évaporateur pendant les dégivrages | F3";
+var VENTIL_F2_SUFFIX = ".Integers.Etat ventilateurs évaporateur avec compresseur arrêté | F2";
+var VENTIL_F0_SUFFIX = ".Integers.Gestion ventilateur évaporateur | F0";
+
 log("[INIT] num_zone="       + num_zone);
 log("[INIT] automate="       + automate);
 log("[INIT] device1="        + device1);
@@ -299,6 +310,64 @@ function modeNormal() {
 
 
 // ============================================================================
+// NOUVEAU : Mise à zéro des 3 variables ventilateur sur device1 ET device2
+//
+// Appelée uniquement en zone double (zones 3 et 4), après toutes les écritures
+// de consigne. Chaîne les 6 writeVerifie (3 par device) puis appelle onSuccess.
+//
+// Adresses construites : device + suffixe (ex: device1 + ".Digitals.Etat...")
+// attendu = null pour F3 (Digital booléen), 0 pour F2 et F0 (Integers).
+// ============================================================================
+function ecrireZeroVentilateurs(onSuccess, onError) {
+    log("[VENTIL] Mise à zéro des ventilateurs device1 et device2");
+
+    // --- device1 F3 (Digital booléen → attendu = null) ---
+    writeVerifie(device1 + VENTIL_F3_SUFFIX, 0, null, "device1 F3=0",
+        function() {
+
+            // --- device1 F2 ---
+            writeVerifie(device1 + VENTIL_F2_SUFFIX, 0, 0, "device1 F2=0",
+                function() {
+
+                    // --- device1 F0 ---
+                    writeVerifie(device1 + VENTIL_F0_SUFFIX, 0, 0, "device1 F0=0",
+                        function() {
+
+                            // --- device2 F3 (Digital booléen → attendu = null) ---
+                            writeVerifie(device2 + VENTIL_F3_SUFFIX, 0, null, "device2 F3=0",
+                                function() {
+
+                                    // --- device2 F2 ---
+                                    writeVerifie(device2 + VENTIL_F2_SUFFIX, 0, 0, "device2 F2=0",
+                                        function() {
+
+                                            // --- device2 F0 ---
+                                            writeVerifie(device2 + VENTIL_F0_SUFFIX, 0, 0, "device2 F0=0",
+                                                function() {
+                                                    log("[VENTIL] Mise à zéro terminée");
+                                                    if (onSuccess) onSuccess();
+                                                },
+                                                function() { if (onError) onError(); }
+                                            );
+                                        },
+                                        function() { if (onError) onError(); }
+                                    );
+                                },
+                                function() { if (onError) onError(); }
+                            );
+                        },
+                        function() { if (onError) onError(); }
+                    );
+                },
+                function() { if (onError) onError(); }
+            );
+        },
+        function() { if (onError) onError(); }
+    );
+}
+
+
+// ============================================================================
 // BOUTON ACTIVER
 // Séquence :
 //   1. Lecture cons_actuelle device1         → bloqué si vide
@@ -310,7 +379,8 @@ function modeNormal() {
 //   6. Write + vérif cons_forcee
 //   7. Write + vérif ventil_forcee = true
 //   8. (zone double) Write + vérif cons_normale_2 + cons_forcee_2
-//   9. Interface → état forcé
+//   9. (zone double) : Mise à zéro F3, F2, F0 sur device1 et device2
+//  10. Interface → état forcé
 //   En cas d'erreur → restauration état normal, rien n'est écrit
 // ============================================================================
 webMI.addEvent("id_btn_activer", "click", function() {
@@ -373,7 +443,6 @@ function ecrireActivationSimple(consActuelle1, consForcee1) {
                     // 7. Write ventil_forcee = true
                     writeVerifie(adr_ventil_forcee, true, null, "Écriture ventil_forcee",
                         function() {
-                            // 9. Tout OK
                             appliquerEtatForce();
                         },
                         function() { appliquerEtatNormal(); }
@@ -412,8 +481,15 @@ function ecrireActivationDouble(consActuelle1, consForcee1, consActuelle2, consF
                                     // 8b. Write cons_forcee_2
                                     writeVerifie(adr_cons_forcee_2, consForcee2, consForcee2, "Écriture cons_forcee_2",
                                         function() {
-                                            // 9. Tout OK
-                                            appliquerEtatForce();
+
+                                            // 9. NOUVEAU : mise à zéro F3, F2, F0 sur device1 et device2
+                                            ecrireZeroVentilateurs(
+                                                function() {
+                                                    // 10. Tout OK
+                                                    appliquerEtatForce();
+                                                },
+                                                function() { appliquerEtatNormal(); }
+                                            );
                                         },
                                         function() { appliquerEtatNormal(); }
                                     );

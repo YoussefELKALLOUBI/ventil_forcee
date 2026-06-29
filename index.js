@@ -63,8 +63,8 @@ var adr_cons_actuelle2 = device2  + webMI.query.cons_actuelle;
 var CONS_FORCEE_MIN = -50;
 
 // ============================================================================
-// NOUVEAU : Suffixes des 3 variables ventilateur évaporateur
-//   Construites dynamiquement : device1 + suffixe  /  device2 + suffixe
+// VARIABLES VENTILATEUR — ZONES DOUBLES (3 et 4)
+//   device1 + suffixe  /  device2 + suffixe
 //   F3 → Digital booléen  (attendu = null dans writeVerifie)
 //   F2 → Integer          (attendu = 0 à l'activation, 1 à la désactivation)
 //   F0 → Integer          (attendu = 0 à l'activation uniquement)
@@ -72,6 +72,17 @@ var CONS_FORCEE_MIN = -50;
 var VENTIL_F3_SUFFIX = ".Digitals.Etat ventilateurs évaporateur pendant les dégivrages | F3";
 var VENTIL_F2_SUFFIX = ".Integers.Etat ventilateurs évaporateur avec compresseur arrêté | F2";
 var VENTIL_F0_SUFFIX = ".Integers.Gestion ventilateur évaporateur | F0";
+
+// ============================================================================
+// VARIABLES VENTILATEUR — ZONES SIMPLES (1 et 2)
+//   device1 uniquement
+//   FAN_F0 → Integer          (attendu = 0 à l'activation uniquement)
+//   FAN_F2 → Digital booléen  (attendu = null dans writeVerifie)
+//   FAN_F3 → Digital booléen  (attendu = null dans writeVerifie)
+// ============================================================================
+var FAN_F0_SUFFIX = ".Integers.Gestion ventilateurs | MANAG_FAN";
+var FAN_F2_SUFFIX = ".Digitals.Ventilateur arrête lorsque que VEM n'est pas en demande (si F0=0) | TEMP_OFF_FAN";
+var FAN_F3_SUFFIX = ".Digitals.Ventilateur arrêté en dégivrage | FAN_IN_DEFROST";
 
 log("[INIT] num_zone="       + num_zone);
 log("[INIT] automate="       + automate);
@@ -228,7 +239,7 @@ function writeVerifie(adresse, valeur, attendu, contexte, onSuccess, onError) {
                 return;
             }
 
-            // Pour les booléens (ventil_forcee, F3), attendu = null → pas de comparaison stricte
+            // Pour les booléens (ventil_forcee, F3, FAN_F2, FAN_F3), attendu = null → pas de comparaison stricte
             if (attendu !== null && String(v.value) !== String(attendu)) {
                 erreur(contexte, "Valeur relue (" + v.value + ") ≠ valeur écrite (" + attendu + ")");
                 if (onError) onError();
@@ -310,17 +321,14 @@ function modeNormal() {
 
 
 // ============================================================================
-// NOUVEAU : Mise à zéro des 3 variables ventilateur sur device1 ET device2
+// ZONES DOUBLES (3 et 4) — Mise à zéro des ventilateurs à l'ACTIVATION
 //
-// Appelée uniquement en zone double (zones 3 et 4), après toutes les écritures
-// de consigne lors de l'ACTIVATION. Chaîne les 6 writeVerifie (3 par device)
-// puis appelle onSuccess.
-//
-// Adresses construites : device + suffixe (ex: device1 + ".Digitals.Etat...")
+// Écrit 0 sur F3, F2, F0 sur device1 ET device2 (6 écritures chaînées).
+// Appelée après toutes les écritures de consigne.
 // attendu = null pour F3 (Digital booléen), 0 pour F2 et F0 (Integers).
 // ============================================================================
 function ecrireZeroVentilateurs(onSuccess, onError) {
-    log("[VENTIL] Mise à zéro des ventilateurs device1 et device2");
+    log("[VENTIL ZD] Mise à zéro des ventilateurs device1 et device2");
 
     // --- device1 F3 (Digital booléen → attendu = null) ---
     writeVerifie(device1 + VENTIL_F3_SUFFIX, 0, null, "device1 F3=0",
@@ -345,7 +353,7 @@ function ecrireZeroVentilateurs(onSuccess, onError) {
                                             // --- device2 F0 ---
                                             writeVerifie(device2 + VENTIL_F0_SUFFIX, 0, 0, "device2 F0=0",
                                                 function() {
-                                                    log("[VENTIL] Mise à zéro terminée");
+                                                    log("[VENTIL ZD] Mise à zéro terminée");
                                                     if (onSuccess) onSuccess();
                                                 },
                                                 function() { if (onError) onError(); }
@@ -369,17 +377,14 @@ function ecrireZeroVentilateurs(onSuccess, onError) {
 
 
 // ============================================================================
-// NOUVEAU : Remise à 1 de F3 et F2 sur device1 ET device2
+// ZONES DOUBLES (3 et 4) — Remise à 1 de F3 et F2 à la DESACTIVATION
 //
-// Appelée uniquement en zone double (zones 3 et 4), après toutes les écritures
-// de consigne lors de la DESACTIVATION. Chaîne les 4 writeVerifie (2 par device)
-// puis appelle onSuccess.
-//
-// F0 n'est PAS remis à 1 lors de la désactivation (géré par le régulateur).
+// Écrit 1 sur F3 et F2 sur device1 ET device2 (4 écritures chaînées).
+// F0 n'est PAS remis à 1 (géré par le régulateur).
 // attendu = null pour F3 (Digital booléen), 1 pour F2 (Integer).
 // ============================================================================
 function ecrireUnVentilateurs(onSuccess, onError) {
-    log("[VENTIL] Remise à 1 de F3 et F2 sur device1 et device2");
+    log("[VENTIL ZD] Remise à 1 de F3 et F2 sur device1 et device2");
 
     // --- device1 F3 (Digital booléen → attendu = null) ---
     writeVerifie(device1 + VENTIL_F3_SUFFIX, 1, null, "device1 F3=1",
@@ -396,7 +401,7 @@ function ecrireUnVentilateurs(onSuccess, onError) {
                             // --- device2 F2 ---
                             writeVerifie(device2 + VENTIL_F2_SUFFIX, 1, 1, "device2 F2=1",
                                 function() {
-                                    log("[VENTIL] Remise à 1 terminée");
+                                    log("[VENTIL ZD] Remise à 1 terminée");
                                     if (onSuccess) onSuccess();
                                 },
                                 function() { if (onError) onError(); }
@@ -404,6 +409,69 @@ function ecrireUnVentilateurs(onSuccess, onError) {
                         },
                         function() { if (onError) onError(); }
                     );
+                },
+                function() { if (onError) onError(); }
+            );
+        },
+        function() { if (onError) onError(); }
+    );
+}
+
+
+// ============================================================================
+// ZONES SIMPLES (1 et 2) — Mise à zéro des ventilateurs à l'ACTIVATION
+//
+// Écrit 0 sur FAN_F0, FAN_F2, FAN_F3 sur device1 uniquement (3 écritures chaînées).
+// Appelée après toutes les écritures de consigne.
+// attendu = 0 pour FAN_F0 (Integer), null pour FAN_F2 et FAN_F3 (Digitals booléens).
+// ============================================================================
+function ecrireZeroVentilateursSimple(onSuccess, onError) {
+    log("[VENTIL ZS] Mise à zéro des ventilateurs device1");
+
+    // --- device1 FAN_F0 (Integer) ---
+    writeVerifie(device1 + FAN_F0_SUFFIX, 0, 0, "device1 FAN_F0=0",
+        function() {
+
+            // --- device1 FAN_F2 (Digital booléen → attendu = null) ---
+            writeVerifie(device1 + FAN_F2_SUFFIX, 0, null, "device1 FAN_F2=0",
+                function() {
+
+                    // --- device1 FAN_F3 (Digital booléen → attendu = null) ---
+                    writeVerifie(device1 + FAN_F3_SUFFIX, 0, null, "device1 FAN_F3=0",
+                        function() {
+                            log("[VENTIL ZS] Mise à zéro terminée");
+                            if (onSuccess) onSuccess();
+                        },
+                        function() { if (onError) onError(); }
+                    );
+                },
+                function() { if (onError) onError(); }
+            );
+        },
+        function() { if (onError) onError(); }
+    );
+}
+
+
+// ============================================================================
+// ZONES SIMPLES (1 et 2) — Remise à 1 de FAN_F2 et FAN_F3 à la DESACTIVATION
+//
+// Écrit 1 sur FAN_F2 et FAN_F3 sur device1 uniquement (2 écritures chaînées).
+// FAN_F0 n'est PAS remis à 1 (géré par le régulateur).
+// attendu = null pour FAN_F2 et FAN_F3 (Digitals booléens).
+// ============================================================================
+function ecrireUnVentilateursSimple(onSuccess, onError) {
+    log("[VENTIL ZS] Remise à 1 de FAN_F2 et FAN_F3 sur device1");
+
+    // --- device1 FAN_F2 (Digital booléen → attendu = null) ---
+    writeVerifie(device1 + FAN_F2_SUFFIX, 1, null, "device1 FAN_F2=1",
+        function() {
+
+            // --- device1 FAN_F3 (Digital booléen → attendu = null) ---
+            writeVerifie(device1 + FAN_F3_SUFFIX, 1, null, "device1 FAN_F3=1",
+                function() {
+                    log("[VENTIL ZS] Remise à 1 terminée");
+                    if (onSuccess) onSuccess();
                 },
                 function() { if (onError) onError(); }
             );
@@ -425,7 +493,9 @@ function ecrireUnVentilateurs(onSuccess, onError) {
 //   6. Write + vérif cons_forcee
 //   7. Write + vérif ventil_forcee = true
 //   8. (zone double) Write + vérif cons_normale_2 + cons_forcee_2
-//   9. (zone double) NOUVEAU : Mise à zéro F3, F2, F0 sur device1 et device2
+//   9. Mise à zéro ventilateurs :
+//        - zone double → ecrireZeroVentilateurs (F3, F2, F0 sur device1 et device2)
+//        - zone simple → ecrireZeroVentilateursSimple (FAN_F0, FAN_F2, FAN_F3 sur device1)
 //  10. Interface → état forcé
 //   En cas d'erreur → restauration état normal, rien n'est écrit
 // ============================================================================
@@ -489,8 +559,15 @@ function ecrireActivationSimple(consActuelle1, consForcee1) {
                     // 7. Write ventil_forcee = true
                     writeVerifie(adr_ventil_forcee, true, null, "Écriture ventil_forcee",
                         function() {
-                            // 10. Tout OK (zone simple : pas de mise à zéro ventilateurs)
-                            appliquerEtatForce();
+
+                            // 9. Mise à zéro FAN_F0, FAN_F2, FAN_F3 sur device1
+                            ecrireZeroVentilateursSimple(
+                                function() {
+                                    // 10. Tout OK
+                                    appliquerEtatForce();
+                                },
+                                function() { appliquerEtatNormal(); }
+                            );
                         },
                         function() { appliquerEtatNormal(); }
                     );
@@ -529,7 +606,7 @@ function ecrireActivationDouble(consActuelle1, consForcee1, consActuelle2, consF
                                     writeVerifie(adr_cons_forcee_2, consForcee2, consForcee2, "Écriture cons_forcee_2",
                                         function() {
 
-                                            // 9. NOUVEAU : mise à zéro F3, F2, F0 sur device1 et device2
+                                            // 9. Mise à zéro F3, F2, F0 sur device1 et device2
                                             ecrireZeroVentilateurs(
                                                 function() {
                                                     // 10. Tout OK
@@ -562,7 +639,9 @@ function ecrireActivationDouble(consActuelle1, consForcee1, consActuelle2, consF
 //   2. Write + vérif cons_actuelle device1
 //   3. Write + vérif ventil_forcee = false
 //   4. (zone double) Lecture cons_normale_2 → write + vérif device2
-//   5. (zone double) NOUVEAU : Remise à 1 de F3 et F2 sur device1 et device2
+//   5. Remise à 1 ventilateurs :
+//        - zone double → ecrireUnVentilateurs (F3, F2 sur device1 et device2)
+//        - zone simple → ecrireUnVentilateursSimple (FAN_F2, FAN_F3 sur device1)
 //   6. Retour modeNormal()
 //   En cas d'erreur → restauration état forcé
 // ============================================================================
@@ -598,7 +677,7 @@ webMI.addEvent("id_btn_desactiver", "click", function() {
                                 writeVerifie(adr_cons_actuelle2, v2.value, v2.value, "Écriture device2 cons_actuelle",
                                     function() {
 
-                                        // 5. NOUVEAU : remise à 1 de F3 et F2 sur device1 et device2
+                                        // 5. Remise à 1 de F3 et F2 sur device1 et device2
                                         ecrireUnVentilateurs(
                                             function() {
                                                 // 6. Tout OK
@@ -612,8 +691,14 @@ webMI.addEvent("id_btn_desactiver", "click", function() {
                             });
 
                         } else {
-                            // 6. Zone simple
-                            modeNormal();
+                            // 5. Remise à 1 de FAN_F2 et FAN_F3 sur device1
+                            ecrireUnVentilateursSimple(
+                                function() {
+                                    // 6. Tout OK
+                                    modeNormal();
+                                },
+                                function() { appliquerEtatForce(); }
+                            );
                         }
                     },
                     function() { appliquerEtatForce(); }

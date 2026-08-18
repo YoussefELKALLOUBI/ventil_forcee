@@ -387,8 +387,14 @@ log("[VISIBILITE] Groupe IJW_2 " + (aZoneDouble ? "affiché" : "masqué"));
 function modeNormal() {
     log("[MODE NORMAL] Initialisation");
 
+    // Ce subscribe reste actif en permanence (webMI ne propose pas de
+    // désabonnement). On ignore donc ses mises à jour dès qu'on repasse en
+    // mode Forcé, pour que id_cons_actuelle n'affiche QUE la valeur normale
+    // sauvegardée (cons_normale), jamais la valeur live du régulateur
+    // (qui, en mode forcé, correspond à la consigne forcée).
     webMI.data.subscribe(adr_cons_actuelle1, function(v) {
         log("[MODE NORMAL] device1 cons_actuelle = " + v.value + " (status=" + v.status + ")");
+        if (enModeForce) return; // en mode forcé, l'affichage est géré ailleurs (valeur normale figée)
         if (!statusOK("subscribe device1 cons_actuelle", v.status)) return;
         webMI.gfx.setText("id_cons_actuelle", v.value);
     });
@@ -396,6 +402,7 @@ function modeNormal() {
     if (aZoneDouble) {
         webMI.data.subscribe(adr_cons_actuelle2, function(v) {
             log("[MODE NORMAL] device2 cons_actuelle = " + v.value + " (status=" + v.status + ")");
+            if (enModeForce) return;
             if (!statusOK("subscribe device2 cons_actuelle", v.status)) return;
             webMI.gfx.setText("id_cons_actuelle_2", v.value);
         });
@@ -644,7 +651,9 @@ function ecrireActivationSimple(consActuelle1, consForcee1) {
                             // 8. Mise à zéro FAN_F0, FAN_F2, FAN_F3 sur device1
                             ecrireZeroVentilateursSimple(
                                 function() {
-                                    // 9. Tout OK
+                                    // 9. Tout OK — on fige l'affichage sur la valeur
+                                    // normale sauvegardée (pas la valeur live/forcée)
+                                    webMI.gfx.setText("id_cons_actuelle", consActuelle1);
                                     appliquerEtatForce();
                                 },
                                 function() { appliquerEtatNormal(); }
@@ -699,7 +708,11 @@ function ecrireActivationDouble(consActuelle1, consActuelle2, consForcee1, consF
                                             // 8. Mise à zéro F3, F2, F0 sur device1 et device2
                                             ecrireZeroVentilateurs(
                                                 function() {
-                                                    // 9. Tout OK
+                                                    // 9. Tout OK — on fige l'affichage sur les
+                                                    // valeurs normales sauvegardées (pas les
+                                                    // valeurs live/forcées)
+                                                    webMI.gfx.setText("id_cons_actuelle", consActuelle1);
+                                                    webMI.gfx.setText("id_cons_actuelle_2", consActuelle2);
                                                     appliquerEtatForce();
                                                 },
                                                 function() { appliquerEtatNormal(); }

@@ -559,12 +559,14 @@ function ecrireUnVentilateursSimple(onSuccess, onError) {
 //   3. (zone double) Lecture cons_actuelle device2        → bloqué si vide
 //   4. (zone double) Lecture + validation cons_forcee_2 depuis automate → bloqué si hors bornes
 //   --- Toutes les validations OK, on commence les écritures ---
-//   5. Write + vérif cons_normale
-//   6. Write + vérif ventil_forcee = true
-//   7. (zone double) Write + vérif cons_normale_2
+//   5.  Write + vérif cons_normale (sauvegarde ancienne valeur device1)
+//   5b. Write + vérif cons_actuelle device1 = consForcee1 (application du forçage)
+//   6.  Write + vérif ventil_forcee = 1
+//   7.  (zone double) Write + vérif cons_normale_2 (sauvegarde ancienne valeur device2)
+//   7b. (zone double) Write + vérif cons_actuelle device2 = consForcee2 (application du forçage)
 //   8. Mise à zéro ventilateurs :
-//        - zone double → ecrireZeroVentilateurs (F3, F2, F0 sur device1 et device2)
-//        - zone simple → ecrireZeroVentilateursSimple (FAN_F0, FAN_F2, FAN_F3 sur device1)
+//        - zone double → ecrireZeroVentilateurs (F2, F0 sur device1 et device2)
+//        - zone simple → ecrireZeroVentilateursSimple (FAN_F0, FAN_F2 sur device1)
 //   9. Interface → état forcé
 //   En cas d'erreur → restauration état normal, rien n'est écrit
 // ============================================================================
@@ -598,14 +600,14 @@ webMI.addEvent("id_btn_activer", "click", function() {
                     lireEtValiderConsForcee(adr_cons_forcee_2, consActuelle2, "Zone " + num_zone + " (IJW2)", function(consForcee2) {
 
                         // Toutes validations OK → écritures zone double
-                        ecrireActivationDouble(consActuelle1, consActuelle2);
+                        ecrireActivationDouble(consActuelle1, consActuelle2, consForcee1, consForcee2);
 
                     }, function() { appliquerEtatNormal(); });
                 });
 
             } else {
                 // Zone simple → écritures directes
-                ecrireActivationSimple(consActuelle1);
+                ecrireActivationSimple(consActuelle1, consForcee1);
             }
 
         }, function() { appliquerEtatNormal(); });
@@ -614,26 +616,39 @@ webMI.addEvent("id_btn_activer", "click", function() {
 
 /**
  * Écritures pour une zone simple (zones 1 et 2).
- * cons_forcee déjà en place dans l'automate via le champ in/out → pas de write.
+ * cons_forcee déjà en place dans l'automate via le champ in/out → pas de write
+ * sur cons_forcee elle-même, mais on écrit sa VALEUR sur cons_actuelle (le
+ * point de consigne réel du régulateur), pour que le forçage prenne effet.
  * Appelée uniquement après validation complète.
+ *
+ * @param {number} consActuelle1 - Ancienne valeur, sauvegardée dans cons_normale
+ * @param {number} consForcee1   - Nouvelle valeur forcée, écrite dans cons_actuelle
  */
-function ecrireActivationSimple(consActuelle1) {
+function ecrireActivationSimple(consActuelle1, consForcee1) {
     log("[ACTIVER] Début écritures zone simple");
 
-    // 5. Write cons_normale
-    writeVerifie(adr_cons_normale, consActuelle1, consActuelle1, "Écriture cons_normale",
+    // 5. Write cons_normale = ancienne valeur (sauvegarde) — retry car
+    //    l'automate peut mettre plus de 300ms à confirmer l'écriture
+    writeVerifieAvecRetry(adr_cons_normale, consActuelle1, consActuelle1, "Écriture cons_normale", 6, 2000,
         function() {
 
-            // 6. Write ventil_forcee = 1 (retry + vérif stricte : l'automate
-            //    ne semblait pas accepter le format booléen JS 'true')
-            writeVerifieAvecRetry(adr_ventil_forcee, 1, 1, "Écriture ventil_forcee", 6, 2000,
+            // 5b. Write cons_actuelle = consForcee (application du forçage sur le régulateur)
+            writeVerifieAvecRetry(adr_cons_actuelle1, consForcee1, consForcee1, "Écriture cons_actuelle (forçage)", 6, 2000,
                 function() {
 
-                    // 8. Mise à zéro FAN_F0, FAN_F2, FAN_F3 sur device1
-                    ecrireZeroVentilateursSimple(
+                    // 6. Write ventil_forcee = 1 (retry + vérif stricte : l'automate
+                    //    ne semblait pas accepter le format booléen JS 'true')
+                    writeVerifieAvecRetry(adr_ventil_forcee, 1, 1, "Écriture ventil_forcee", 6, 2000,
                         function() {
-                            // 9. Tout OK
-                            appliquerEtatForce();
+
+                            // 8. Mise à zéro FAN_F0, FAN_F2, FAN_F3 sur device1
+                            ecrireZeroVentilateursSimple(
+                                function() {
+                                    // 9. Tout OK
+                                    appliquerEtatForce();
+                                },
+                                function() { appliquerEtatNormal(); }
+                            );
                         },
                         function() { appliquerEtatNormal(); }
                     );
@@ -647,29 +662,51 @@ function ecrireActivationSimple(consActuelle1) {
 
 /**
  * Écritures pour une zone double (zones 3 et 4).
- * cons_forcee et cons_forcee_2 déjà en place dans l'automate via les champs in/out → pas de write.
+ * cons_forcee et cons_forcee_2 déjà en place dans l'automate via les champs
+ * in/out → pas de write sur elles-mêmes, mais on écrit leur VALEUR sur
+ * cons_actuelle1/2 (les points de consigne réels des régulateurs), pour
+ * que le forçage prenne effet.
  * Appelée uniquement après validation complète des deux zones.
+ *
+ * @param {number} consActuelle1 - Ancienne valeur device1, sauvegardée dans cons_normale
+ * @param {number} consActuelle2 - Ancienne valeur device2, sauvegardée dans cons_normale_2
+ * @param {number} consForcee1   - Nouvelle valeur forcée device1
+ * @param {number} consForcee2   - Nouvelle valeur forcée device2
  */
-function ecrireActivationDouble(consActuelle1, consActuelle2) {
+function ecrireActivationDouble(consActuelle1, consActuelle2, consForcee1, consForcee2) {
     log("[ACTIVER] Début écritures zone double");
 
-    // 5. Write cons_normale
-    writeVerifie(adr_cons_normale, consActuelle1, consActuelle1, "Écriture cons_normale",
+    // 5. Write cons_normale = ancienne valeur device1 (sauvegarde) — retry
+    writeVerifieAvecRetry(adr_cons_normale, consActuelle1, consActuelle1, "Écriture cons_normale", 6, 2000,
         function() {
 
-            // 6. Write ventil_forcee = 1 (retry + vérif stricte)
-            writeVerifieAvecRetry(adr_ventil_forcee, 1, 1, "Écriture ventil_forcee", 6, 2000,
+            // 5b. Write cons_actuelle1 = consForcee1 (application du forçage device1)
+            writeVerifieAvecRetry(adr_cons_actuelle1, consForcee1, consForcee1, "Écriture cons_actuelle device1 (forçage)", 6, 2000,
                 function() {
 
-                    // 7. Write cons_normale_2
-                    writeVerifie(adr_cons_normale_2, consActuelle2, consActuelle2, "Écriture cons_normale_2",
+                    // 6. Write ventil_forcee = 1 (retry + vérif stricte)
+                    writeVerifieAvecRetry(adr_ventil_forcee, 1, 1, "Écriture ventil_forcee", 6, 2000,
                         function() {
 
-                            // 8. Mise à zéro F3, F2, F0 sur device1 et device2
-                            ecrireZeroVentilateurs(
+                            // 7. Write cons_normale_2 = ancienne valeur device2 (sauvegarde)
+                            writeVerifieAvecRetry(adr_cons_normale_2, consActuelle2, consActuelle2, "Écriture cons_normale_2", 6, 2000,
                                 function() {
-                                    // 9. Tout OK
-                                    appliquerEtatForce();
+
+                                    // 7b. Write cons_actuelle2 = consForcee2 (application du forçage device2)
+                                    writeVerifieAvecRetry(adr_cons_actuelle2, consForcee2, consForcee2, "Écriture cons_actuelle device2 (forçage)", 6, 2000,
+                                        function() {
+
+                                            // 8. Mise à zéro F3, F2, F0 sur device1 et device2
+                                            ecrireZeroVentilateurs(
+                                                function() {
+                                                    // 9. Tout OK
+                                                    appliquerEtatForce();
+                                                },
+                                                function() { appliquerEtatNormal(); }
+                                            );
+                                        },
+                                        function() { appliquerEtatNormal(); }
+                                    );
                                 },
                                 function() { appliquerEtatNormal(); }
                             );
@@ -738,8 +775,8 @@ function executerDesactivation(origine) {
 
         var valeurNormale = v1.value;
 
-        // 2. Write + vérif cons_actuelle device1
-        writeVerifie(adr_cons_actuelle1, valeurNormale, valeurNormale, "Écriture device1 cons_actuelle",
+        // 2. Write + vérif cons_actuelle device1 — retry
+        writeVerifieAvecRetry(adr_cons_actuelle1, valeurNormale, valeurNormale, "Écriture device1 cons_actuelle", 6, 2000,
             function() {
 
                 // 3. Write + vérif ventil_forcee = 0 (retry + vérif stricte)
@@ -754,7 +791,7 @@ function executerDesactivation(origine) {
                                 if (!statusOK("Lecture cons_normale_2", v2.status)) { terminerErreur(); return; }
                                 if (!valeurValide("Lecture cons_normale_2", v2.value)) { terminerErreur(); return; }
 
-                                writeVerifie(adr_cons_actuelle2, v2.value, v2.value, "Écriture device2 cons_actuelle",
+                                writeVerifieAvecRetry(adr_cons_actuelle2, v2.value, v2.value, "Écriture device2 cons_actuelle", 6, 2000,
                                     function() {
                                         // 5. Tout OK — F2/F3 non touchés
                                         terminerSucces();

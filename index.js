@@ -83,9 +83,9 @@ var VENTIL_F0_SUFFIX = ".Integers.Gestion ventilateur évaporateur | F0";
 //   FAN_F2 → Digital booléen  (attendu = null dans writeVerifie)
 //   FAN_F3 → Digital booléen  (NON TOUCHÉ — ni activation ni désactivation)
 // ============================================================================
-var FAN_F0_SUFFIX = ".Integers.Gestion ventilateurs | MANAG_FAN";
-var FAN_F2_SUFFIX = ".Digitals.Ventilateur arrête lorsque que VEM n'est pas en demande (si F0=0) | TEMP_OFF_FAN";
-var FAN_F3_SUFFIX = ".Digitals.Ventilateur arrêté en dégivrage | FAN_IN_DEFROST";
+var FAN_F0_SUFFIX = ".Integers.Gestion ventilateurs | F0";
+var FAN_F2_SUFFIX = ".Digitals.Ventilateur arrête lorsque que VEM n'est pas en demande (si F0=0) | F2";
+var FAN_F3_SUFFIX = ".Digitals.Ventilateur arrêté en dégivrage | F3";
 
 log("[INIT] num_zone="       + num_zone);
 log("[INIT] automate="       + automate);

@@ -368,11 +368,12 @@ function ecrireZeroVentilateurs(onSuccess, onError) {
 
 
 // ============================================================================
+// [DEPRECIE — non appelée depuis la désactivation]
 // ZONES DOUBLES (3 et 4) — Remise à 1 de F3 et F2 à la DESACTIVATION
 //
-// Écrit 1 sur F3 et F2 sur device1 ET device2 (4 écritures chaînées).
-// F0 n'est PAS remis à 1 (géré par le régulateur).
-// attendu = null pour F3 (Digital booléen), 1 pour F2 (Integer).
+// Conservée dans le code au cas où, mais volontairement plus appelée par
+// le bouton DESACTIVER : F3 et F2 (device1/device2) ne sont plus touchés
+// lors de la désactivation, à la demande.
 // ============================================================================
 function ecrireUnVentilateurs(onSuccess, onError) {
     log("[VENTIL ZD] Remise à 1 de F3 et F2 sur device1 et device2");
@@ -445,11 +446,12 @@ function ecrireZeroVentilateursSimple(onSuccess, onError) {
 
 
 // ============================================================================
+// [DEPRECIE — non appelée depuis la désactivation]
 // ZONES SIMPLES (1 et 2) — Remise à 1 de FAN_F2 et FAN_F3 à la DESACTIVATION
 //
-// Écrit 1 sur FAN_F2 et FAN_F3 sur device1 uniquement (2 écritures chaînées).
-// FAN_F0 n'est PAS remis à 1 (géré par le régulateur).
-// attendu = null pour FAN_F2 et FAN_F3 (Digitals booléens).
+// Conservée dans le code au cas où, mais volontairement plus appelée par
+// le bouton DESACTIVER : FAN_F2 et FAN_F3 (device1) ne sont plus touchés
+// lors de la désactivation, à la demande.
 // ============================================================================
 function ecrireUnVentilateursSimple(onSuccess, onError) {
     log("[VENTIL ZS] Remise à 1 de FAN_F2 et FAN_F3 sur device1");
@@ -612,11 +614,13 @@ function ecrireActivationDouble(consActuelle1, consActuelle2) {
 //   2. Write + vérif cons_actuelle device1
 //   3. Write + vérif ventil_forcee = false
 //   4. (zone double) Lecture cons_normale_2 → write + vérif device2
-//   5. Remise à 1 ventilateurs :
-//        - zone double → ecrireUnVentilateurs (F3, F2 sur device1 et device2)
-//        - zone simple → ecrireUnVentilateursSimple (FAN_F2, FAN_F3 sur device1)
-//   6. Retour modeNormal()
+//   5. Retour modeNormal()
 //   En cas d'erreur → restauration état forcé
+//
+//   NOTE : F2/F3 (zone double) et FAN_F2/FAN_F3 (zone simple) ne sont
+//   PLUS remis à 1 à la désactivation, à la demande. Ils restent tels
+//   qu'ils ont été laissés par l'activation (à 0), sous la responsabilité
+//   du régulateur / d'une remise à niveau manuelle si besoin.
 // ============================================================================
 webMI.addEvent("id_btn_desactiver", "click", function() {
     log("[BTN DESACTIVER] Clic");
@@ -649,29 +653,16 @@ webMI.addEvent("id_btn_desactiver", "click", function() {
 
                                 writeVerifie(adr_cons_actuelle2, v2.value, v2.value, "Écriture device2 cons_actuelle",
                                     function() {
-
-                                        // 5. Remise à 1 de F3 et F2 sur device1 et device2
-                                        ecrireUnVentilateurs(
-                                            function() {
-                                                // 6. Tout OK
-                                                modeNormal();
-                                            },
-                                            function() { appliquerEtatForce(); }
-                                        );
+                                        // 5. Tout OK — F2/F3 non touchés (retrait de ecrireUnVentilateurs)
+                                        modeNormal();
                                     },
                                     function() { appliquerEtatForce(); }
                                 );
                             });
 
                         } else {
-                            // 5. Remise à 1 de FAN_F2 et FAN_F3 sur device1
-                            ecrireUnVentilateursSimple(
-                                function() {
-                                    // 6. Tout OK
-                                    modeNormal();
-                                },
-                                function() { appliquerEtatForce(); }
-                            );
+                            // 5. Tout OK — FAN_F2/FAN_F3 non touchés (retrait de ecrireUnVentilateursSimple)
+                            modeNormal();
                         }
                     },
                     function() { appliquerEtatForce(); }

@@ -83,9 +83,9 @@ var VENTIL_F0_SUFFIX = ".Integers.Gestion ventilateur évaporateur | F0";
 //   FAN_F2 → Digital booléen  (attendu = null dans writeVerifie)
 //   FAN_F3 → Digital booléen  (NON TOUCHÉ — ni activation ni désactivation)
 // ============================================================================
-var FAN_F0_SUFFIX = ".Integers.Gestion ventilateurs | F0";
-var FAN_F2_SUFFIX = ".Digitals.Ventilateur arrête lorsque que VEM n'est pas en demande (si F0=0) | F2";
-var FAN_F3_SUFFIX = ".Digitals.Ventilateur arrêté en dégivrage | F3";
+var FAN_F0_SUFFIX = ".Integers.Gestion ventilateurs | MANAG_FAN";
+var FAN_F2_SUFFIX = ".Digitals.Ventilateur arrête lorsque que VEM n'est pas en demande (si F0=0) | TEMP_OFF_FAN";
+var FAN_F3_SUFFIX = ".Digitals.Ventilateur arrêté en dégivrage | FAN_IN_DEFROST";
 
 log("[INIT] num_zone="       + num_zone);
 log("[INIT] automate="       + automate);
@@ -247,7 +247,17 @@ function writeVerifie(adresse, valeur, attendu, contexte, onSuccess, onError) {
 // ETAT INTERFACE
 // ============================================================================
 
+// enModeForce : reflète l'état courant (true = mode forcé actif), utilisé
+// par le subscribe ventil_forcee pour savoir s'il doit déclencher une
+// désactivation automatique.
+// desactivationEnCours : garde-fou anti-boucle/anti-double-exécution, car
+// executerDesactivation() écrit elle-même ventil_forcee=false, ce qui
+// redéclencherait le subscribe sans cette protection.
+var enModeForce         = false;
+var desactivationEnCours = false;
+
 function appliquerEtatNormal() {
+    enModeForce = false;
     setEnabled("id_btn_activer",    true);
     setEnabled("id_btn_desactiver", false);
     setVisibleChamp("id_masque_1", false);
@@ -257,6 +267,7 @@ function appliquerEtatNormal() {
 }
 
 function appliquerEtatForce() {
+    enModeForce = true;
     setEnabled("id_btn_activer",    false);
     setEnabled("id_btn_desactiver", true);
     setVisibleChamp("id_masque_1", true);
@@ -591,7 +602,12 @@ function ecrireActivationDouble(consActuelle1, consActuelle2) {
 
 
 // ============================================================================
-// BOUTON DESACTIVER
+// DESACTIVATION
+// Déclenchée par :
+//   - le clic sur id_btn_desactiver
+//   - la détection (via subscribe) d'un passage de ventil_forcee à false
+//     fait ailleurs que par ce bouton (automate, autre page, etc.)
+//
 // Séquence :
 //   1. Lecture cons_normale (automate)  → bloqué si vide
 //   2. Write + vérif cons_actuelle device1
@@ -604,17 +620,37 @@ function ecrireActivationDouble(consActuelle1, consActuelle2) {
 //   PLUS remis à 1 à la désactivation, à la demande. Ils restent tels
 //   qu'ils ont été laissés par l'activation (à 0), sous la responsabilité
 //   du régulateur / d'une remise à niveau manuelle si besoin.
+//
+//   desactivationEnCours protège contre :
+//   - un double déclenchement (clic + subscribe simultanés)
+//   - une boucle infinie : l'étape 3 écrit ventil_forcee=false, ce qui
+//     ferait retrigger le subscribe si on ne se protégeait pas.
 // ============================================================================
-webMI.addEvent("id_btn_desactiver", "click", function() {
-    log("[BTN DESACTIVER] Clic");
+function executerDesactivation(origine) {
+    if (desactivationEnCours) {
+        log("[DESACTIVATION] Déjà en cours, appel ignoré (origine=" + origine + ")");
+        return;
+    }
+    desactivationEnCours = true;
+    log("[DESACTIVATION] Début (origine=" + origine + ")");
     appliquerEtatEnCours();
+
+    function terminerErreur() {
+        desactivationEnCours = false;
+        appliquerEtatForce();
+    }
+
+    function terminerSucces() {
+        desactivationEnCours = false;
+        modeNormal();
+    }
 
     // 1. Lecture cons_normale
     webMI.data.read(adr_cons_normale, function(v1) {
-        log("[BTN DESACTIVER] Lecture cons_normale = '" + v1.value + "' (status=" + v1.status + ")");
+        log("[DESACTIVATION] Lecture cons_normale = '" + v1.value + "' (status=" + v1.status + ")");
 
-        if (!statusOK("Lecture cons_normale", v1.status)) { appliquerEtatForce(); return; }
-        if (!valeurValide("Lecture cons_normale", v1.value)) { appliquerEtatForce(); return; }
+        if (!statusOK("Lecture cons_normale", v1.status)) { terminerErreur(); return; }
+        if (!valeurValide("Lecture cons_normale", v1.value)) { terminerErreur(); return; }
 
         var valeurNormale = v1.value;
 
@@ -629,31 +665,36 @@ webMI.addEvent("id_btn_desactiver", "click", function() {
                         if (aZoneDouble) {
                             // 4. Lecture cons_normale_2
                             webMI.data.read(adr_cons_normale_2, function(v2) {
-                                log("[BTN DESACTIVER] Lecture cons_normale_2 = '" + v2.value + "' (status=" + v2.status + ")");
+                                log("[DESACTIVATION] Lecture cons_normale_2 = '" + v2.value + "' (status=" + v2.status + ")");
 
-                                if (!statusOK("Lecture cons_normale_2", v2.status)) { appliquerEtatForce(); return; }
-                                if (!valeurValide("Lecture cons_normale_2", v2.value)) { appliquerEtatForce(); return; }
+                                if (!statusOK("Lecture cons_normale_2", v2.status)) { terminerErreur(); return; }
+                                if (!valeurValide("Lecture cons_normale_2", v2.value)) { terminerErreur(); return; }
 
                                 writeVerifie(adr_cons_actuelle2, v2.value, v2.value, "Écriture device2 cons_actuelle",
                                     function() {
-                                        // 5. Tout OK — F2/F3 non touchés (retrait de ecrireUnVentilateurs)
-                                        modeNormal();
+                                        // 5. Tout OK — F2/F3 non touchés
+                                        terminerSucces();
                                     },
-                                    function() { appliquerEtatForce(); }
+                                    function() { terminerErreur(); }
                                 );
                             });
 
                         } else {
-                            // 5. Tout OK — FAN_F2/FAN_F3 non touchés (retrait de ecrireUnVentilateursSimple)
-                            modeNormal();
+                            // 5. Tout OK — FAN_F2/FAN_F3 non touchés
+                            terminerSucces();
                         }
                     },
-                    function() { appliquerEtatForce(); }
+                    function() { terminerErreur(); }
                 );
             },
-            function() { appliquerEtatForce(); }
+            function() { terminerErreur(); }
         );
     });
+}
+
+webMI.addEvent("id_btn_desactiver", "click", function() {
+    log("[BTN DESACTIVER] Clic");
+    executerDesactivation("clic bouton");
 });
 
 
@@ -692,5 +733,29 @@ webMI.data.read(adr_ventil_forcee, function(v) {
     } else {
         log("[INIT] → Mode normal");
         modeNormal();
+    }
+});
+
+
+// ============================================================================
+// SURVEILLANCE ventil_forcee : désactivation automatique
+//
+// En plus du clic sur id_btn_desactiver, on surveille en continu l'adresse
+// ventil_forcee. Si elle passe à false ALORS QU'ON EST en mode forcé
+// (enModeForce = true) ET que ce n'est pas nous-même en train d'exécuter
+// la désactivation (desactivationEnCours = true, écriture de l'étape 3),
+// on déclenche executerDesactivation() automatiquement — par exemple si
+// ventil_forcee a été remis à false depuis l'automate ou une autre page.
+// ============================================================================
+webMI.data.subscribe(adr_ventil_forcee, function(v) {
+    log("[SUBSCRIBE ventil_forcee] valeur=" + v.value + " (status=" + v.status + ")");
+
+    if (!statusOK("subscribe ventil_forcee", v.status)) return;
+
+    var estForceLu = (v.value === true || v.value === 1 || v.value === "true");
+
+    if (!estForceLu && enModeForce && !desactivationEnCours) {
+        log("[SUBSCRIBE ventil_forcee] Passage à false détecté hors bouton → désactivation automatique");
+        executerDesactivation("auto (ventil_forcee=false)");
     }
 });

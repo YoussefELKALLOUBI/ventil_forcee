@@ -424,20 +424,20 @@ function modeNormal() {
 function ecrireZeroVentilateurs(onSuccess, onError) {
     log("[VENTIL ZD] Mise à zéro des ventilateurs device1 et device2 (F3 non touché)");
 
-    // --- device1 F2 ---
-    writeVerifie(device1 + VENTIL_F2_SUFFIX, 0, 0, "device1 F2=0",
+    // --- device1 F2 --- (retry, l'automate peut mettre plus de 300ms à confirmer)
+    writeVerifieAvecRetry(device1 + VENTIL_F2_SUFFIX, 0, 0, "device1 F2=0", 6, 2000,
         function() {
 
             // --- device1 F0 ---
-            writeVerifie(device1 + VENTIL_F0_SUFFIX, 0, 0, "device1 F0=0",
+            writeVerifieAvecRetry(device1 + VENTIL_F0_SUFFIX, 0, 0, "device1 F0=0", 6, 2000,
                 function() {
 
                     // --- device2 F2 ---
-                    writeVerifie(device2 + VENTIL_F2_SUFFIX, 0, 0, "device2 F2=0",
+                    writeVerifieAvecRetry(device2 + VENTIL_F2_SUFFIX, 0, 0, "device2 F2=0", 6, 2000,
                         function() {
 
                             // --- device2 F0 ---
-                            writeVerifie(device2 + VENTIL_F0_SUFFIX, 0, 0, "device2 F0=0",
+                            writeVerifieAvecRetry(device2 + VENTIL_F0_SUFFIX, 0, 0, "device2 F0=0", 6, 2000,
                                 function() {
                                     log("[VENTIL ZD] Mise à zéro terminée");
                                     if (onSuccess) onSuccess();
@@ -511,12 +511,12 @@ function ecrireUnVentilateurs(onSuccess, onError) {
 function ecrireZeroVentilateursSimple(onSuccess, onError) {
     log("[VENTIL ZS] Mise à zéro des ventilateurs device1 (FAN_F3 non touché)");
 
-    // --- device1 FAN_F0 (Integer) ---
-    writeVerifie(device1 + FAN_F0_SUFFIX, 0, 0, "device1 FAN_F0=0",
+    // --- device1 FAN_F0 (Integer) --- (retry, l'automate peut mettre plus de 300ms à confirmer)
+    writeVerifieAvecRetry(device1 + FAN_F0_SUFFIX, 0, 0, "device1 FAN_F0=0", 6, 2000,
         function() {
 
-            // --- device1 FAN_F2 (Digital booléen → attendu = null) ---
-            writeVerifie(device1 + FAN_F2_SUFFIX, 0, null, "device1 FAN_F2=0",
+            // --- device1 FAN_F2 (Digital booléen) ---
+            writeVerifieAvecRetry(device1 + FAN_F2_SUFFIX, 0, 0, "device1 FAN_F2=0", 6, 2000,
                 function() {
                     log("[VENTIL ZS] Mise à zéro terminée");
                     if (onSuccess) onSuccess();

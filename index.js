@@ -68,8 +68,8 @@ var CONS_FORCEE_MIN = -50;
 // ============================================================================
 // VARIABLES VENTILATEUR — ZONES DOUBLES (3 et 4)
 //   device1 + suffixe  /  device2 + suffixe
-//   F3 → Digital booléen  (attendu = null dans writeVerifie)
-//   F2 → Integer          (attendu = 0 à l'activation, 1 à la désactivation)
+//   F3 → Digital booléen  (NON TOUCHÉ — ni activation ni désactivation)
+//   F2 → Integer          (attendu = 0 à l'activation ; non touché à la désactivation)
 //   F0 → Integer          (attendu = 0 à l'activation uniquement)
 // ============================================================================
 var VENTIL_F3_SUFFIX = ".Digitals.Etat ventilateurs évaporateur pendant les dégivrages | F3";
@@ -81,7 +81,7 @@ var VENTIL_F0_SUFFIX = ".Integers.Gestion ventilateur évaporateur | F0";
 //   device1 uniquement
 //   FAN_F0 → Integer          (attendu = 0 à l'activation uniquement)
 //   FAN_F2 → Digital booléen  (attendu = null dans writeVerifie)
-//   FAN_F3 → Digital booléen  (attendu = null dans writeVerifie)
+//   FAN_F3 → Digital booléen  (NON TOUCHÉ — ni activation ni désactivation)
 // ============================================================================
 var FAN_F0_SUFFIX = ".Integers.Gestion ventilateurs | MANAG_FAN";
 var FAN_F2_SUFFIX = ".Digitals.Ventilateur arrête lorsque que VEM n'est pas en demande (si F0=0) | TEMP_OFF_FAN";
@@ -314,44 +314,32 @@ function modeNormal() {
 // ============================================================================
 // ZONES DOUBLES (3 et 4) — Mise à zéro des ventilateurs à l'ACTIVATION
 //
-// Écrit 0 sur F3, F2, F0 sur device1 ET device2 (6 écritures chaînées).
+// Écrit 0 sur F2, F0 sur device1 ET device2 (4 écritures chaînées).
+// F3 n'est PLUS touché du tout (ni à l'activation ni à la désactivation),
+// à la demande.
 // Appelée après toutes les écritures de consigne.
-// attendu = null pour F3 (Digital booléen), 0 pour F2 et F0 (Integers).
+// attendu = 0 pour F2 et F0 (Integers).
 // ============================================================================
 function ecrireZeroVentilateurs(onSuccess, onError) {
-    log("[VENTIL ZD] Mise à zéro des ventilateurs device1 et device2");
+    log("[VENTIL ZD] Mise à zéro des ventilateurs device1 et device2 (F3 non touché)");
 
-    // --- device1 F3 (Digital booléen → attendu = null) ---
-    writeVerifie(device1 + VENTIL_F3_SUFFIX, 0, null, "device1 F3=0",
+    // --- device1 F2 ---
+    writeVerifie(device1 + VENTIL_F2_SUFFIX, 0, 0, "device1 F2=0",
         function() {
 
-            // --- device1 F2 ---
-            writeVerifie(device1 + VENTIL_F2_SUFFIX, 0, 0, "device1 F2=0",
+            // --- device1 F0 ---
+            writeVerifie(device1 + VENTIL_F0_SUFFIX, 0, 0, "device1 F0=0",
                 function() {
 
-                    // --- device1 F0 ---
-                    writeVerifie(device1 + VENTIL_F0_SUFFIX, 0, 0, "device1 F0=0",
+                    // --- device2 F2 ---
+                    writeVerifie(device2 + VENTIL_F2_SUFFIX, 0, 0, "device2 F2=0",
                         function() {
 
-                            // --- device2 F3 (Digital booléen → attendu = null) ---
-                            writeVerifie(device2 + VENTIL_F3_SUFFIX, 0, null, "device2 F3=0",
+                            // --- device2 F0 ---
+                            writeVerifie(device2 + VENTIL_F0_SUFFIX, 0, 0, "device2 F0=0",
                                 function() {
-
-                                    // --- device2 F2 ---
-                                    writeVerifie(device2 + VENTIL_F2_SUFFIX, 0, 0, "device2 F2=0",
-                                        function() {
-
-                                            // --- device2 F0 ---
-                                            writeVerifie(device2 + VENTIL_F0_SUFFIX, 0, 0, "device2 F0=0",
-                                                function() {
-                                                    log("[VENTIL ZD] Mise à zéro terminée");
-                                                    if (onSuccess) onSuccess();
-                                                },
-                                                function() { if (onError) onError(); }
-                                            );
-                                        },
-                                        function() { if (onError) onError(); }
-                                    );
+                                    log("[VENTIL ZD] Mise à zéro terminée");
+                                    if (onSuccess) onSuccess();
                                 },
                                 function() { if (onError) onError(); }
                             );
@@ -413,12 +401,14 @@ function ecrireUnVentilateurs(onSuccess, onError) {
 // ============================================================================
 // ZONES SIMPLES (1 et 2) — Mise à zéro des ventilateurs à l'ACTIVATION
 //
-// Écrit 0 sur FAN_F0, FAN_F2, FAN_F3 sur device1 uniquement (3 écritures chaînées).
+// Écrit 0 sur FAN_F0, FAN_F2 sur device1 uniquement (2 écritures chaînées).
+// FAN_F3 n'est PLUS touché du tout (ni à l'activation ni à la désactivation),
+// à la demande.
 // Appelée après toutes les écritures de consigne.
-// attendu = 0 pour FAN_F0 (Integer), null pour FAN_F2 et FAN_F3 (Digitals booléens).
+// attendu = 0 pour FAN_F0 (Integer), null pour FAN_F2 (Digital booléen).
 // ============================================================================
 function ecrireZeroVentilateursSimple(onSuccess, onError) {
-    log("[VENTIL ZS] Mise à zéro des ventilateurs device1");
+    log("[VENTIL ZS] Mise à zéro des ventilateurs device1 (FAN_F3 non touché)");
 
     // --- device1 FAN_F0 (Integer) ---
     writeVerifie(device1 + FAN_F0_SUFFIX, 0, 0, "device1 FAN_F0=0",
@@ -427,15 +417,8 @@ function ecrireZeroVentilateursSimple(onSuccess, onError) {
             // --- device1 FAN_F2 (Digital booléen → attendu = null) ---
             writeVerifie(device1 + FAN_F2_SUFFIX, 0, null, "device1 FAN_F2=0",
                 function() {
-
-                    // --- device1 FAN_F3 (Digital booléen → attendu = null) ---
-                    writeVerifie(device1 + FAN_F3_SUFFIX, 0, null, "device1 FAN_F3=0",
-                        function() {
-                            log("[VENTIL ZS] Mise à zéro terminée");
-                            if (onSuccess) onSuccess();
-                        },
-                        function() { if (onError) onError(); }
-                    );
+                    log("[VENTIL ZS] Mise à zéro terminée");
+                    if (onSuccess) onSuccess();
                 },
                 function() { if (onError) onError(); }
             );

@@ -212,6 +212,36 @@ function lireEtValiderConsForcee(adresse, consActuelle, label, onSuccess, onErro
 }
 
 
+/**
+ * Normalise une valeur en booléen si elle en représente un (true/false,
+ * 1/0, "true"/"false"), sinon retourne null (valeur non booléenne, ex: une
+ * température ou un entier autre que 0/1).
+ */
+function normaliserBooleen(v) {
+    if (v === true  || v === 1 || v === "true"  || v === "1") return true;
+    if (v === false || v === 0 || v === "false" || v === "0") return false;
+    return null;
+}
+
+/**
+ * Compare une valeur relue à une valeur attendue, en tenant compte du fait
+ * que l'automate peut répondre avec un format différent de celui écrit
+ * (ex: on écrit 1, l'automate relit "true" — sémantiquement identique).
+ * Si les deux valeurs sont "booléennes" (true/false/1/0/"true"/"false"),
+ * on compare leur normalisation. Sinon, comparaison stricte en texte
+ * (utile pour les consignes numériques, où on veut une égalité exacte).
+ */
+function valeursCorrespondent(valeurLue, attendu) {
+    var nLue     = normaliserBooleen(valeurLue);
+    var nAttendu = normaliserBooleen(attendu);
+
+    if (nLue !== null && nAttendu !== null) {
+        return nLue === nAttendu;
+    }
+    return String(valeurLue) === String(attendu);
+}
+
+
 // ============================================================================
 // ECRITURE SECURISEE
 // write() sans callback (non supporté dans cette version de webMI),
@@ -230,8 +260,8 @@ function writeVerifie(adresse, valeur, attendu, contexte, onSuccess, onError) {
                 return;
             }
 
-            // Pour les booléens (ventil_forcee, F3, FAN_F2, FAN_F3), attendu = null → pas de comparaison stricte
-            if (attendu !== null && String(v.value) !== String(attendu)) {
+            // Pour les booléens (F3, FAN_F2, FAN_F3), attendu = null → pas de comparaison stricte
+            if (attendu !== null && !valeursCorrespondent(v.value, attendu)) {
                 erreur(contexte, "Valeur relue (" + v.value + ") ≠ valeur écrite (" + attendu + ")");
                 if (onError) onError();
                 return;
@@ -240,6 +270,59 @@ function writeVerifie(adresse, valeur, attendu, contexte, onSuccess, onError) {
             if (onSuccess) onSuccess();
         });
     }, 300);
+}
+
+/**
+ * Variante de writeVerifie avec plusieurs tentatives, pour les variables
+ * automate dont la propagation semble plus lente (ex: ventil_forcee) ou
+ * qui nécessitent d'être réécrites (l'automate republie parfois une valeur
+ * périmée juste après l'écriture).
+ *
+ * @param {string}   adresse
+ * @param {*}        valeur       - Valeur à écrire (ex: true/false ou 1/0)
+ * @param {*}        attendu      - Valeur attendue à la relecture (comparaison stricte, jamais null ici)
+ * @param {string}   contexte     - Label pour les logs/alertes
+ * @param {number}   tentatives   - Nombre max de tentatives (ex: 3)
+ * @param {number}   delaiMs      - Délai avant chaque relecture (ex: 500)
+ * @param {function} onSuccess
+ * @param {function} onError      - Appelée seulement après épuisement de toutes les tentatives
+ */
+function writeVerifieAvecRetry(adresse, valeur, attendu, contexte, tentatives, delaiMs, onSuccess, onError) {
+    var essai = 0;
+
+    function tenter() {
+        essai++;
+        log("[WRITE-RETRY] " + contexte + " → tentative " + essai + "/" + tentatives + " : '" + valeur + "' sur " + adresse);
+        webMI.data.write(adresse, valeur);
+
+        setTimeout(function() {
+            webMI.data.read(adresse, function(v) {
+                log("[WRITE-RETRY] " + contexte + " → vérif tentative " + essai + " : " + v.value + " (status=" + v.status + ")");
+
+                if (!statusOK(contexte + " [vérif tentative " + essai + "]", v.status)) {
+                    if (essai < tentatives) { tenter(); return; }
+                    if (onError) onError();
+                    return;
+                }
+
+                if (!valeursCorrespondent(v.value, attendu)) {
+                    if (essai < tentatives) {
+                        log("[WRITE-RETRY] " + contexte + " : mismatch (" + v.value + " ≠ " + attendu + "), nouvel essai...");
+                        tenter();
+                        return;
+                    }
+                    erreur(contexte, "Après " + tentatives + " tentatives, valeur relue (" + v.value + ") ≠ valeur écrite (" + attendu + "). L'automate n'accepte peut-être pas cette écriture (variable calculée en interne ?).");
+                    if (onError) onError();
+                    return;
+                }
+
+                log("[WRITE-RETRY] " + contexte + " OK après " + essai + " tentative(s)");
+                if (onSuccess) onSuccess();
+            });
+        }, delaiMs);
+    }
+
+    tenter();
 }
 
 
@@ -541,8 +624,9 @@ function ecrireActivationSimple(consActuelle1) {
     writeVerifie(adr_cons_normale, consActuelle1, consActuelle1, "Écriture cons_normale",
         function() {
 
-            // 6. Write ventil_forcee = true
-            writeVerifie(adr_ventil_forcee, true, null, "Écriture ventil_forcee",
+            // 6. Write ventil_forcee = 1 (retry + vérif stricte : l'automate
+            //    ne semblait pas accepter le format booléen JS 'true')
+            writeVerifieAvecRetry(adr_ventil_forcee, 1, 1, "Écriture ventil_forcee", 6, 2000,
                 function() {
 
                     // 8. Mise à zéro FAN_F0, FAN_F2, FAN_F3 sur device1
@@ -573,8 +657,8 @@ function ecrireActivationDouble(consActuelle1, consActuelle2) {
     writeVerifie(adr_cons_normale, consActuelle1, consActuelle1, "Écriture cons_normale",
         function() {
 
-            // 6. Write ventil_forcee = true
-            writeVerifie(adr_ventil_forcee, true, null, "Écriture ventil_forcee",
+            // 6. Write ventil_forcee = 1 (retry + vérif stricte)
+            writeVerifieAvecRetry(adr_ventil_forcee, 1, 1, "Écriture ventil_forcee", 6, 2000,
                 function() {
 
                     // 7. Write cons_normale_2
@@ -658,8 +742,8 @@ function executerDesactivation(origine) {
         writeVerifie(adr_cons_actuelle1, valeurNormale, valeurNormale, "Écriture device1 cons_actuelle",
             function() {
 
-                // 3. Write + vérif ventil_forcee = false
-                writeVerifie(adr_ventil_forcee, false, null, "Écriture ventil_forcee",
+                // 3. Write + vérif ventil_forcee = 0 (retry + vérif stricte)
+                writeVerifieAvecRetry(adr_ventil_forcee, 0, 0, "Écriture ventil_forcee", 6, 2000,
                     function() {
 
                         if (aZoneDouble) {
